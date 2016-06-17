@@ -1,46 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-u"""IkaLogのWebSocketServer機能と連動して、ナワバリバトルのタイムラインっぽいテキストを出力します.
-"""
+#  
+# 2016-06-09 Rev.10
+#  
 
-import csv
-import json
-import time
+import json, time, csv
 from datetime import datetime
-from tornado import ioloop
 from ws4py.client.tornadoclient import TornadoWebSocketClient
+from tornado import ioloop
 
 # ステージ名
-STAGES = {
+stages = {
     'anchovy': {'ja': 'アンチョビットゲームズ', 'en': 'Ancho-V Games'},
-    'arowana':  {'ja': 'アロワナモール', 'en': 'Arowana Mall'},
-    'bbass':    {'ja': 'Bバスパーク', 'en': 'Blackbelly Skatepark'},
-    'dekaline': {'ja': 'デカライン高架下', 'en': 'Urchin Underpass'},
-    'hakofugu': {'ja': 'ハコフグ倉庫', 'en': 'Walleye Warehouse', },
-    'hirame':   {'ja': 'ヒラメが丘団地', 'en': 'Flounder Heights', },
-    'hokke':    {'ja': 'ホッケふ頭', 'en': 'Port Mackerel'},
-    'kinmedai': {'ja': 'キンメダイ美術館', 'en': 'Museum d\'Alfonsino'},
+    'arowana':  {'ja': 'アロワナモール',      'en': 'Arowana Mall'},
+    'bbass':    {'ja': 'Bバスパーク',         'en': 'Blackbelly Skatepark'},
+    'dekaline': {'ja': 'デカライン高架下',    'en': 'Urchin Underpass'},
+    'hakofugu': {'ja': 'ハコフグ倉庫',        'en': 'Walleye Warehouse', },
+    'hirame':   {'ja': 'ヒラメが丘団地',      'en': 'Flounder Heights', },
+    'hokke':    {'ja': 'ホッケふ頭',          'en': 'Port Mackerel'},
+    'kinmedai': {'ja': 'キンメダイ美術館',    'en': 'Museum d\'Alfonsino'},
     'mahimahi': {'ja': 'マヒマヒリゾート&スパ', 'en': 'Mahi-Mahi Resort', },
-    'masaba':   {'ja': 'マサバ海峡大橋', 'en': 'Hammerhead Bridge', },
-    'mongara':  {'ja': 'モンガラキャンプ場', 'en': 'Camp Triggerfish', },
-    'mozuku':   {'ja':  'モズク農園', 'en': 'Kelp Dome', },
-    'negitoro': {'ja': 'ネギトロ炭鉱', 'en': 'Bluefin Depot', },
-    'shionome': {'ja': 'シオノメ油田', 'en': 'Saltspray Rig', },
-    'shottsuru': {'ja': 'ショッツル鉱山', 'en': 'Piranha Pit'},
+    'masaba':   {'ja': 'マサバ海峡大橋',      'en': 'Hammerhead Bridge', },
+    'mongara':  {'ja': 'モンガラキャンプ場',  'en': 'Camp Triggerfish', },
+    'mozuku':   {'ja':  'モズク農園',         'en': 'Kelp Dome', },
+    'negitoro': {'ja': 'ネギトロ炭鉱',        'en': 'Bluefin Depot', },
+    'shionome': {'ja': 'シオノメ油田',        'en': 'Saltspray Rig', },
+    'shottsuru': {'ja': 'ショッツル鉱山',     'en': 'Piranha Pit'},
     'tachiuo':  {'ja':  'タチウオパーキング', 'en':  'Moray Towers', },
-    }
+}
 
 # ルール名
-RULES = {
+rules = {
     'nawabari': {'ja': 'ナワバリバトル', 'en': 'Turf War', },
     'area': {'ja': 'ガチエリア', 'en': 'Splat Zones', },
     'yagura': {'ja': 'ガチヤグラ', 'en': 'Tower Control', },
     'hoko': {'ja': 'ガチホコバトル', 'en': 'Rainmaker', },
-    }
+}
 
 # やられ名
 #\IkaLog\ikalog\constants.pyから引用させていただきました。
-DICT_REASONS = {
+dict_reasons = {
     '52gal': {'ja': '.52ガロン', 'en': '.52 Gal'},
     '52gal_deco': {'ja': '.52ガロンデコ', 'en': '.52 Gal Deco'},
     '96gal': {'ja': '.96ガロン', 'en': '.96 Gal'},
@@ -165,10 +164,10 @@ DICT_REASONS = {
     'oob': {'ja': '三三(.ω.)三 場外に落ちた！', 'en': 'Out of Bounds', },
     'fall': {'ja': '三三(.ω.)三 奈落に落ちた！', 'en': 'Fall', },
     'drown': {'ja': '三三(.ω.)三 水場に落ちた！', 'en': 'Drowning', },
-    }
+}
 
 #ギア効果
-GEAR_ABILITIES = {
+gear_abilities = {
     'bomb_range_up': {'ja': 'ボム飛距離アップ', 'en': 'Bomb Range Up'},
     'bomb_sniffer': {'ja': 'ボムサーチ', 'en': 'Bomb Sniffer'},
     'cold_blooded': {'ja': 'マーキングガード', 'en': 'Cold Blooded'},
@@ -194,11 +193,11 @@ GEAR_ABILITIES = {
     'special_saver': {'ja':  'スペシャル減少量ダウン', 'en': 'Special Saver'},
     'stealth_jump': {'ja':  'ステルスジャンプ', 'en': 'Stealth Jump'},
     'swim_speed_up': {'ja':  'イカダッシュ速度アップ', 'en': 'Swim Speed Up'},
-    'tenacity': {'ja':  '逆境強化', 'en': 'Tenacity'}
-    }
+    'tenacity': {'ja':  '逆境', 'en': 'Tenacity'}
+}
 
 #ギアのブランド
-GEAR_BRANDS = {
+gear_brands = {
     'amiibo':     {'ja': 'amiibo', 'en': 'amiibo', },
     'cuttlegear': {'ja': 'アタリメイド', 'en': 'Cuttlegear', },
     'famitsu':    {'ja': 'ファミ通', 'en': 'Famitsu', },
@@ -216,69 +215,67 @@ GEAR_BRANDS = {
     'tentatek':   {'ja': 'アロメ', 'en': 'Tentatek', },
     'zekko':      {'ja': 'エゾッコ', 'en': 'Zekko', },
     'zink':       {'ja': 'アイロニック', 'en': 'Zink', },
-    }
+}
 
 # 勝ち負け
-DICT_JUDGES = {
+dict_judges = {
     'win':  '勝ちました！',
     'lose': '負けました…',
-    }
+}
 
 # 出力するメッセージの内容
 # eventで判定するロジックを追加した時は、対応する内容を合わせて追加すること。
 # キラキラ系の顔文字を使いたかったのですが、使うと動かなくなりました。文字コードの処理が良くわかりません。
-#oob系のメッセージは、DICT_REASONS {}に移動しました。
-DICT_MESSAGES = {
+#oob系のメッセージは、dict_reasons {}に移動しました。
+dict_messages = {
     'on_game_go_sign': "ε(*'-')з彡 バトルスタート！",
     'on_death_reason_identified': "ﾉ*(≧Д≦)★ %sでやられた！",
-    'on_game_killed': "v(`ω´)ﾉ ☆ プレイヤーをたおした！",
+    'on_game_killed': "\(`ω´)ﾉ ☆ プレイヤーをたおした！",
     'on_result_judge': "(*ΦωΦ)ﾉ◇ ジャッジくんの結果発表！",
     'on_result_detail': "%sの%sで%s ブキは%s %dp %dk/%ddでした。",
     'unknown': "しらないブキ",
-    }
+ }
 
-class Structures:
-    u""" on_game_start'のタイミングで取得出来る値を処理内で持ちまわる
-    start_time:記録開始
-    file_handle:ファイル
-    stage_name:ステージ日本語名
-    rulr_name :ルール日本語名
-    death_time:やられ初期通知の時刻
-    rulr_name :表示用勝ち/負け
-    """
+# 'on_game_start'のタイミングで取得出来る値を持ちまわる為
+# start_time:記録開始
+# f         :ファイル
+# stage_name:ステージ日本語名
+# rulr_name :ルール日本語名
+# death_time:やられ初期通知の時刻
+# rulr_name :表示用勝ち/負け
+class structure:
     start_time = datetime.now()
-    file_handle = None
+    f = None
     stage_name = 'わからない場所'
-    rule_name = 'わからないルール'
+    rule_name =  'わからないルール'
     death_time = datetime.now()
-    judge = '勝ち負け不明'
+    judge =  '勝ち負け不明'
 
-def dt2sec(date_time):
-    u"""エポックからの経過秒数に変換 """
-    ret = int(time.mktime(datetime.timetuple(date_time)))
-    return ret
+# エポックからの経過秒数に変換
+def dt2sec(dt):
+    return int(time.mktime(datetime.timetuple(dt)))
 
+#やられ内容の日本語対応を取得する
 def get_reason_name(reason_code):
-    u"""やられ内容の日本語対応を取得する """
-    if reason_code in DICT_REASONS:
-        reason_name = DICT_REASONS[reason_code]['ja']
+    if reason_code in dict_reasons:
+        reason_name = dict_reasons[reason_code]['ja']
     else:
-        reason_name = DICT_MESSAGES['unknown']
+        reason_name = dict_messages['unknown']
     return reason_name
 
-def output_message_processing(event, battle_st):
-    u"""メッセージをタイムラインっぽく整形してファイルに書き出す＆print() """
+# メッセージをタイムラインっぽく整形して内容をファイルに書き出す＆print()
+def output_message_processing(event, st):
     event_code = event['event']
 
     # やられた時の時刻は初期通知のものを使う
     if event_code == 'on_death_reason_identified':
-        result = dt2sec(battle_st.death_time) - dt2sec(battle_st.start_time)
+        result = dt2sec(st.death_time) - dt2sec(st.start_time)
     else:
-        result = dt2sec(datetime.now()) - dt2sec(battle_st.start_time)
+        result = dt2sec(datetime.now()) - dt2sec(st.start_time)
 
     #result = result - 0    #自動録画の内容とタイムラインのタイミングにズレが発生する場合に調整できるように（秒数を指定）
     min_sec = '%02d:%02d' % (result // 60, result - (result // 60) * 60)
-    msg = '%s %s\n' % (min_sec, DICT_MESSAGES[event_code])
+    msg = '%s %s\n' % (min_sec, dict_messages[event_code])
 
     # やられた時
     if event_code == 'on_death_reason_identified':
@@ -292,27 +289,25 @@ def output_message_processing(event, battle_st):
 
     # ジャッジくん
     if event_code == 'on_result_judge':
-        battle_st.judge = DICT_JUDGES[event['judge']]  #勝ち負けは、リザルトで出しています。
+        st.judge = dict_judges[event['judge']]  #勝ち負けは、リザルトで出しています。
 
     # リザルト
     # 例：キンメダイ美術館のナワバリバトルで勝ちました！ ブキはプライムシューター 999p 0k/1dでした。
     if event_code == 'on_result_detail':
         if event['score'] is None:  #フェスマッチは、塗りポイントが無かったような気がするので、判定してメッセージを別に記述（必要無いかも）
             msg = '%sの%sで%s ブキは%s %dk/%ddでした。'
-            msg = msg % (battle_st.stage_name, battle_st.rule_name, battle_st.judge, \
-                get_reason_name(event['weapon']), event['kills'], event['deaths'])
+            msg = msg % (st.stage_name, st.rule_name, st.judge, get_reason_name(event['weapon']), event['kills'], event['deaths'])
         else:
-            msg = msg % (battle_st.stage_name, battle_st.rule_name, battle_st.judge, \
-                get_reason_name(event['weapon']), event['score'], event['kills'], event['deaths'])
+            msg = msg % (st.stage_name, st.rule_name, st.judge, get_reason_name(event['weapon']), event['score'], event['kills'], event['deaths'])
 
-    battle_st.file_handle.write(msg)
+    st.f.write(msg)
     print(msg.strip())
 
+#
+# 注意①　　通常は使わない機能です。
+# キャプチャー環境の違いにより、実際とは違う認識をしている時にコードを入れ替える
+# サブスロットには付かない効果で認識している＆一定の法則性がある時のみ有効かも。
 def abilities_code_swap(code):
-    u"""注意①　　通常は使わない機能です。
-    キャプチャー環境の違いにより、実際とは違う認識をしている時にコードを入れ替える
-    サブスロットには付かない効果で認識している＆一定の法則性がある時のみ有効かも。
-    """
     swap_codes = {
         'recon':  'ink_recovery_up',
         'ink_resistance_up': 'run_speed_up',
@@ -322,22 +317,21 @@ def abilities_code_swap(code):
     else:
         return code
 
+# ダウニーガチャ ログ作成
+# ファイル形式は CSV、
+# '日時',  'ブランド名',  'ギアレベル',  'スロット1',  'スロット2',  'スロット3'
+# 発生しないと思いますが、コードに対応する名称が無いときはコードを代入しています。
 def downie_lottery(event):
-    u"""ダウニーガチャ ログ作成
-    ファイル形式は CSV、
-    '日時',  'ブランド名',  'ギアレベル',  'スロット1',  'スロット2',  'スロット3'
-    発生しないと思いますが、コードに対応する名称が無いときはコードを代入しています。
-    """
-    dat = [datetime.now().strftime("%Y/%m/%d %H:%M:%S"), '不明', 0]
+    dat = [datetime.now().strftime("%Y/%m/%d %H:%M:%S"), '不明' , 0]
     #ブランド名
     brand_code = ''
     if not event['gear_brand'] is None:
         brand_code = event['gear_brand']
-    if not GEAR_BRANDS[brand_code]['ja'] is None:
-        dat[1] = GEAR_BRANDS[brand_code]['ja']
+    if not gear_brands[brand_code]['ja'] is None:
+        dat[1] = gear_brands[brand_code]['ja']
     else:
         dat[1] = brand_code
-
+        
     #gear_level
     if not  event['gear_level'] is None:
         dat[2] = event['gear_level']
@@ -346,67 +340,60 @@ def downie_lottery(event):
     slot = ['不明', '不明', '不明']
     for i, abilities_code in enumerate(event['sub_abilities']):
         #abilities_code = abilities_code_swap(abilities_code)    #注意①参照
-        if not GEAR_ABILITIES[abilities_code]['ja'] is None:
-            slot[i] = GEAR_ABILITIES[abilities_code]['ja']
+        if not gear_abilities[abilities_code]['ja'] is None:
+            slot[i] = gear_abilities[abilities_code]['ja']
         else:
             slot[i] = abilities_code
 
-    with open('downie_lottery.csv', 'a') as file:
-        writer = csv.writer(file, lineterminator='\n')
+    with open('downie_lottery.csv', 'a') as f:
+        writer = csv.writer(f , lineterminator='\n')
         writer.writerow(dat + slot)
         print(dat + slot)
 
 #
+#
 class MyClient(TornadoWebSocketClient):
-    u"""イベントに合わせてバトルのタイムラインっぽいものを作成する部分
-    event_lists = {}に記載した文字列でイベントを判定
-    on_game_go_sign: バトル開始！
-    on_death_reason_identified: やられた！
-    on_game_killed: たおした！
-    on_result_judge: ジャッジくん
-    on_result_detail: リザルト
-    """
+
     def received_message(self, message):
         event = json.loads(str(message))
         #print(event)
 
         # バトル開始前のステージ紹介　記録開始
         if event['event'] == 'on_game_start':
-            global BATTLE_ST   #何故か global にしないと動かない…
-            BATTLE_ST = Structures
+            
+            global st   #何故か global にしないと動かない…
+            st = structure
 
             #ステージの日本語名を取得
-            if event['stage'] in STAGES:
-                BATTLE_ST.stage_name = STAGES[event['stage']]['ja']
+            if event['stage'] in stages:
+                st.stage_name = stages[event['stage']]['ja']
 
             #ルールの日本語名を取得
-            if event['rule'] in RULES:
-                BATTLE_ST.rule_name = RULES[event['rule']]['ja']
+            if event['rule'] in rules:
+                st.rule_name = rules[event['rule']]['ja']
 
             #記録開始日時
-            BATTLE_ST.start_time = datetime.now()
+            st.start_time = datetime.now()
 
             # ファイル名は記録開始の年月日-時分 20160226-2201.txt みたいな感じで出力しています。
-            BATTLE_ST.file_handle = \
-                                  open('%s.txt' % BATTLE_ST.start_time.strftime("%Y%m%d-%H%M"), 'w')
-            print('\n%sの%s記録開始 (%s)\n' % \
-                  (BATTLE_ST.stage_name, BATTLE_ST.rule_name, BATTLE_ST.file_handle.name))
+            st.f = open('%s.txt' % st.start_time.strftime("%Y%m%d-%H%M") , 'w')
+            print('\n%sの%s記録開始 (%s)\n' % (st.stage_name, st.rule_name, st.f.name))
 
         try:
             # 表示用に、やられ通知の時刻を記憶
             if event['event'] == 'on_game_dead':
-                BATTLE_ST.death_time = datetime.now()
+                st.death_time = datetime.now()
 
-            # ここの判定項目を増やした時は、DICT_MESSAGES = {}に対応する値を設定しないと（そのままでは）駄目
-            event_lists = {
-                'on_game_go_sign',
-                'on_death_reason_identified',
-                'on_game_killed',
-                'on_result_judge',
-                'on_result_detail'
-                }
+            #バトルのタイムラインっぽいものを作成する部分
+            # バトル開始！: on_game_go_sign
+            # やられた！  : on_death_reason_identified
+            # たおした！  : on_game_killed
+            # ジャッジくん: on_result_judge
+            # リザルト    : on_result_detail
+            # ここの判定項目を増やした時は、dict_messages = {}に対応する値を設定しないと（そのままでは）駄目
+            event_lists = {'on_game_go_sign', 'on_death_reason_identified', 'on_game_killed', 'on_result_judge', 'on_result_detail' }
             if event['event'] in event_lists:
-                output_message_processing(event, BATTLE_ST)
+                output_message_processing(event, st)
 
             #ダウニーガチャのログを作成する部分
             if event['event'] == 'on_inkopolis_lottery':
@@ -416,8 +403,8 @@ class MyClient(TornadoWebSocketClient):
 
         # 記録終了
         if event['event'] == 'on_game_session_end':
-            print('\n(%s) 記録終了' % BATTLE_ST.file_handle.name)
-            BATTLE_ST.file_handle.close()
+            print('\n(%s) 記録終了' % st.f.name)
+            st.f.close()
 
     #
     def closed(self, code, reason=None):
@@ -425,13 +412,13 @@ class MyClient(TornadoWebSocketClient):
 
 if __name__ == '__main__':
     # 文字によってエラーになってしまう現象の対応方法が分からないので、変更した時は一度表示して動作確認
-    #for code in DICT_MESSAGES:
-    #    print(DICT_MESSAGES[code])
+    #for code in dict_messages:
+    #    print(dict_messages[code])
 
-    print('(%s) WebSocket 受信を開始します.' % __file__)
+    print('(%s) 待受を開始します.' % __file__)
 
-    #IPアドレスとポートを環境に合わせて変更してください.
-    # WS = MyClient('ws://192.168.1.11:9090/ws', protocols=['http-only', 'chat'])
-    WS = MyClient('ws://127.0.0.1:9090/ws', protocols=['http-only', 'chat'])
-    WS.connect()
-    ioloop.IOLoop.instance().start()
+    #IPアドレスとポートを環境に合わせて変更してください。    
+    ws = MyClient('ws://127.0.0.1:9090/ws', protocols=['http-only', 'chat'])
+    ws.connect()
+
+    ioloop.IOLoop.instance().start()   
